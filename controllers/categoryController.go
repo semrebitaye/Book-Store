@@ -60,7 +60,7 @@ func GetCategories(c *gin.Context) {
 	db := initializers.DB
 	if pgParam.Search != "" {
 		db.Where("name LIKE %%?%%", pgParam.Search)
-	} else {
+	} else if filterParam.Filters != nil {
 		for _, filter := range filterParam.Filters {
 			db = db.Where(fmt.Sprintf("%s %s %v", filter.ColumnName, filter.Operator, filter.Value))
 		}
@@ -118,8 +118,8 @@ func UpdateCategory(c *gin.Context) {
 
 	// update it
 	initializers.DB.Model(&category).Updates(models.Category{
-		Name: categoryRequest.Name, 
-		Role: category.Role, 
+		Name:       categoryRequest.Name,
+		Role:       category.Role,
 		CategoryID: bookRequest.CategoryID,
 	})
 

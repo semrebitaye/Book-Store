@@ -53,7 +53,6 @@ func GetAuthors(c *gin.Context) {
 		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to to bind the query", Stack: err})
 		return
 	}
-	fmt.Println("params:", pgParam)
 	filterParam, err := utilities.ExtractPagination(pgParam)
 	if err != nil {
 		c.AbortWithError(http.StatusInternalServerError, err)
@@ -63,7 +62,7 @@ func GetAuthors(c *gin.Context) {
 	db := initializers.DB
 	if pgParam.Search != "" {
 		db.Where("name LIKE %%?%% OR biography LIKE %%?%% OR nationality LIKE %%?%%", pgParam.Search, pgParam.Search, pgParam.Search)
-	} else {
+	} else if filterParam.Filters != nil {
 		for _, filter := range filterParam.Filters {
 			db = db.Where(fmt.Sprintf("%s %s %v", filter.ColumnName, filter.Operator, filter.Value))
 		}

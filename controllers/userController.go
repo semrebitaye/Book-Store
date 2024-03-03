@@ -63,7 +63,7 @@ func GetUsers(c *gin.Context) {
 		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to bind the query", Stack: err})
 		return
 	}
-	fmt.Println("params:", pgParam)
+
 	filterParam, err := utilities.ExtractPagination(pgParam)
 	if err != nil {
 		c.AbortWithError(http.StatusInternalServerError, err)
@@ -76,13 +76,14 @@ func GetUsers(c *gin.Context) {
 	// search and filter
 	if pgParam.Search != "" {
 		db.Where("first_name LIKE %%?%% OR last_name LIKE %%?%% OR user_name LIKE %%?%%", pgParam.Search, pgParam.Search, pgParam.Search)
-	} else {
+	} else if filterParam.Filters != nil {
 		for _, filter := range filterParam.Filters {
 			db = db.Where(fmt.Sprintf("%s %s %v", filter.ColumnName, filter.Operator, filter.Value))
 		}
 	}
 
 	offset := (filterParam.Page - 1) * filterParam.PerPage
+
 	result := db.Offset(offset).Limit(filterParam.PerPage).Order(filterParam.Sort.ColumnName + " " + filterParam.Sort.Value).Find(&users)
 
 	if result.Error != nil {
@@ -134,10 +135,10 @@ func UpdateUser(c *gin.Context) {
 
 	// update it
 	initializers.DB.Model(&user).Updates(models.User{
-		UserName: Body.UserName, 
-		Password: Body.Password, 
-		FirstName: Body.FirstName, 
-		LastName: Body.LastName,
+		UserName:  Body.UserName,
+		Password:  Body.Password,
+		FirstName: Body.FirstName,
+		LastName:  Body.LastName,
 	})
 
 	// respond it

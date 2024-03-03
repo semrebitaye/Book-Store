@@ -34,26 +34,35 @@ type FilterParam struct {
 }
 
 func ExtractPagination(param PaginationParam) (FilterParam, error) {
-	fmt.Print(param)
+
 	page, err := strconv.Atoi(param.Page)
 	if err != nil || page <= 0 {
 		page = 1
 	}
+	fmt.Println("page int:", page)
 	per_page, err := strconv.Atoi(param.PerPage)
 	if err != nil || per_page <= 0 {
 		per_page = 10 // Default limit
 	}
-
+	fmt.Println("perpage int:", per_page)
 	var sort Sort
-	err = json.Unmarshal([]byte(param.Sort), &sort)
-	if err != nil {
-		return FilterParam{}, err
+	if param.Sort == "" {
+		sort.ColumnName = "created_at"
+		sort.Value = "asc"
+
+	} else {
+		err = json.Unmarshal([]byte(param.Sort), &sort)
+		if err != nil {
+			return FilterParam{}, err
+		}
 	}
 
 	var filter []Filter
-	err = json.Unmarshal([]byte(param.Filter), &filter)
-	if err != nil {
-		return FilterParam{}, err
+	if param.Filter != "" {
+		err = json.Unmarshal([]byte(param.Filter), &filter)
+		if err != nil {
+			return FilterParam{}, err
+		}
 	}
 
 	return FilterParam{

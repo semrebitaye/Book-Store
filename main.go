@@ -62,6 +62,3 @@ func main() {
 
 	r.Run()
 }
-
-// var query =`{"page":"1" "per_page":"10" sort:{"column_name":"created_at","value":"asc"} filters:{{"column_name:"auhtor_name","operator":"startswith","value":"s"},{"column_name:"auhtor_name","operator":"startswith","value":"s"}}}`
-// var condition string= "author_name startswith s and salary > 1000  offset=20 limit=10 sortby created_at orderby asc"

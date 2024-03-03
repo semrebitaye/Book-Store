@@ -81,7 +81,7 @@ func GetBooks(c *gin.Context) {
 	db := initializers.DB
 	if pgParam.Search != "" {
 		db.Where("title LIKE %%?%% OR author LIKE %%?%% OR category LIKE %%?%%", pgParam.Search, pgParam.Search, pgParam.Search)
-	} else {
+	} else if filterParam.Filters != nil {
 		for _, filter := range filterParam.Filters {
 			db = db.Where(fmt.Sprintf("%s %s %v", filter.ColumnName, filter.Operator, filter.Value))
 		}
