@@ -1,9 +1,9 @@
 package initializers
 
 import (
-	"log"
 	"os"
 
+	"golang.org/x/exp/slog"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -18,6 +18,7 @@ func ConnectToDB() {
 	})
 
 	if err != nil {
-		log.Fatal("Failed to connect to database")
+		slog.Error("Failed to connect to database", err)
+		return
 	}
 }

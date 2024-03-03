@@ -6,12 +6,14 @@ import (
 	"book-store/middleware"
 	"book-store/migrate"
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 func init() {
 	fmt.Println("connecting to db.........")
+
 	initializers.LoadEnvVariables()
 	initializers.ConnectToDB()
 	MigrateUp()
@@ -28,7 +30,7 @@ func main() {
 	r.POST("/create", controllers.CreateUser)
 	r.POST("/login", controllers.Login)
 
-	r.Use(middleware.Authentication(), middleware.Authorization())
+	r.Use(middleware.Authentication(), middleware.Authorization(), middleware.TimeoutMiddleware(5*time.Second))
 
 	r.GET("/get", controllers.GetUsers)
 	r.GET("/get/:user_id", controllers.GetUserById)
@@ -48,7 +50,7 @@ func main() {
 	r.DELETE("/deleteAuth/:author_id", controllers.DeleteBook)
 
 	r.POST("/createCategory", controllers.CreateCategory)
-	r.GET("/getCategory", controllers.GetCategory)
+	r.GET("/getCategory", controllers.GetCategories)
 	r.GET("/getCategory/:category_id", controllers.GetCategoryById)
 	r.PUT("/updateCategory/:category_id", controllers.UpdateCategory)
 	r.DELETE("/deleteCategory/:category_id", controllers.DeleteCategory)
@@ -56,8 +58,10 @@ func main() {
 	r.GET("/validate", controllers.Validate)
 
 	r.POST("/upload/book-cover", controllers.UploadBookCover)
-	r.GET("/get-book-cover", controllers.GetBookCoverImage)
-	r.GET("/search-book/:params", controllers.SearchBooks)
+	r.GET("/get-book-cover/:book_id/cover", controllers.GetBookCoverImage)
 
 	r.Run()
 }
+
+// var query =`{"page":"1" "per_page":"10" sort:{"column_name":"created_at","value":"asc"} filters:{{"column_name:"auhtor_name","operator":"startswith","value":"s"},{"column_name:"auhtor_name","operator":"startswith","value":"s"}}}`
+// var condition string= "author_name startswith s and salary > 1000  offset=20 limit=10 sortby created_at orderby asc"

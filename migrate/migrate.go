@@ -8,7 +8,7 @@ import (
 
 func MigrateUpModels() {
 	fmt.Println("migrating up.............")
-	initializers.DB.AutoMigrate(&models.User{}, &models.Book{}, &models.Author{}, &models.Category{})
+	initializers.DB.AutoMigrate(&models.User{}, &models.Book{}, &models.Author{}, &models.Category{}, &models.Image{})
 }
 
 func MigrateDownModels() {

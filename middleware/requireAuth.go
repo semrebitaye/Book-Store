@@ -1,9 +1,10 @@
 package middleware
 
 import (
+	"book-store/controllers"
 	"book-store/initializers"
 	"book-store/models"
-	"errors"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,12 +16,11 @@ import (
 )
 
 func Authentication() gin.HandlerFunc {
-	//get the cookie of the req body
+	//get the Bearer of the req body
 	return func(c *gin.Context) {
 		tokenString := c.GetHeader("Authorization")
 		if !(strings.HasPrefix(tokenString, "Bearer ")) {
-			fmt.Println("bearer not found")
-			c.AbortWithStatus(http.StatusUnauthorized)
+			controllers.ErrorResponse(c, http.StatusUnauthorized, &models.Error{Message: "Bearer not found"})
 			return
 		}
 		tokenStr := strings.TrimPrefix(tokenString, "Bearer ")
@@ -36,17 +36,14 @@ func Authentication() gin.HandlerFunc {
 			return []byte(os.Getenv("SECRET")), nil
 		})
 		if err != nil {
-			fmt.Print("Error validation", err)
-
-			c.AbortWithStatus(http.StatusUnauthorized)
+			controllers.ErrorResponse(c, http.StatusUnauthorized, &models.Error{Message: "Validation error", Stack: err})
 			return
 		}
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			//check the exp
 			if float64(time.Now().Unix()) > claims["exp"].(float64) {
-				fmt.Print("Error expired", err)
-				c.AbortWithStatus(http.StatusUnauthorized)
+				controllers.ErrorResponse(c, http.StatusUnauthorized, &models.Error{Message: "Tocken Expired", Stack: err})
 				return
 			}
 			// fined the user with token sub
@@ -54,10 +51,7 @@ func Authentication() gin.HandlerFunc {
 			initializers.DB.First(&user, claims["sub"])
 
 			if user.ID == 0 {
-
-				err := errors.New("user not found")
-				fmt.Print("Error not found", err)
-				c.AbortWithError(http.StatusNotFound, err)
+				controllers.ErrorResponse(c, http.StatusNotFound, &models.Error{Message: "User not found", Stack: err})
 				return
 			}
 
@@ -69,7 +63,7 @@ func Authentication() gin.HandlerFunc {
 
 			c.Next()
 		} else {
-			c.AbortWithStatus(http.StatusInternalServerError)
+			controllers.ErrorResponse(c, http.StatusInternalServerError, &models.Error{Message: "Tocken not found", Stack: err})
 			return
 		}
 	}
@@ -80,17 +74,14 @@ func Authorization() gin.HandlerFunc {
 		userRole := c.Value("role").(models.Role)
 
 		if userRole == "" {
-			err := errors.New("role not found")
-			fmt.Println("role not found")
-			c.AbortWithError(http.StatusUnauthorized, err)
+			controllers.ErrorResponse(c, http.StatusUnauthorized, &models.Error{Message: "role not found"})
 			return
 		}
 
 		method := c.Request.Method
 		if userRole == (models.UserRole) {
 			if method != http.MethodGet {
-				err := errors.New("unauthorized user")
-				c.AbortWithError(http.StatusUnauthorized, err)
+				controllers.ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Unauthorized user"})
 				return
 			}
 
@@ -98,4 +89,23 @@ func Authorization() gin.HandlerFunc {
 		c.Next()
 	}
 
+}
+
+func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		defer cancel()
+
+		// Assign the new context with timeout to the request
+		c.Request = c.Request.WithContext(ctx)
+
+		// Call the next handler
+		c.Next()
+
+		// If the request context has been canceled, respond with a timeout error
+		if ctx.Err() == context.DeadlineExceeded {
+			controllers.ErrorResponse(c, http.StatusRequestTimeout, &models.Error{Message: "Request timeout"})
+			return
+		}
+	}
 }

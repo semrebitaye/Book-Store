@@ -3,6 +3,7 @@ package controllers
 import (
 	"book-store/initializers"
 	"book-store/models"
+	"book-store/utilities"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,36 +26,75 @@ func CreateUser(c *gin.Context) {
 	// get data of the req body
 	err := c.Bind(&Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Failed to get the request body"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to bind the request body", Stack: err})
+		return
 	}
 	// hash the req password
 	hash, err := bcrypt.GenerateFromPassword([]byte(Body.Password), 10)
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Failed to hash password"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to hash the password", Stack: err})
+		return
 	}
 	// create user
-	user := models.User{UserName: Body.UserName, Password: string(hash), FirstName: Body.FirstName, LastName: Body.LastName, Role: models.Role(Body.Role)}
+	user := models.User{
+		UserName:  Body.UserName,
+		Password:  string(hash),
+		FirstName: Body.FirstName,
+		LastName:  Body.LastName,
+		Role:      models.Role(Body.Role),
+	}
 
 	result := initializers.DB.Create(&user)
 
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Failed to create user"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to create the user", Stack: result.Error})
+		return
 	}
 	user.Password = ""
 	// return it
-	c.JSON(200, gin.H{"User": user})
+	SuccessResponse(c, http.StatusOK, user, &models.Metadata{})
 }
 
 func GetUsers(c *gin.Context) {
-	// get the user from the model database
-	var users []models.User
-	result := initializers.DB.Find(&users)
-	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Failed to get the user"})
+	var pgParam utilities.PaginationParam
+
+	if err := c.BindQuery(&pgParam); err != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to bind the query", Stack: err})
+		return
 	}
-	// respond with them
-	c.IndentedJSON(200, gin.H{"Users": users})
+	fmt.Println("params:", pgParam)
+	filterParam, err := utilities.ExtractPagination(pgParam)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+	// Retrieve books with pagination and sorting
+	var users []models.User
+	db := initializers.DB
+
+	// search and filter
+	if pgParam.Search != "" {
+		db.Where("first_name LIKE %%?%% OR last_name LIKE %%?%% OR user_name LIKE %%?%%", pgParam.Search, pgParam.Search, pgParam.Search)
+	} else {
+		for _, filter := range filterParam.Filters {
+			db = db.Where(fmt.Sprintf("%s %s %v", filter.ColumnName, filter.Operator, filter.Value))
+		}
+	}
+
+	offset := (filterParam.Page - 1) * filterParam.PerPage
+	result := db.Offset(offset).Limit(filterParam.PerPage).Order(filterParam.Sort.ColumnName + " " + filterParam.Sort.Value).Find(&users)
+
+	if result.Error != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to bind the request body", Stack: result.Error})
+		return
+	}
+
+	SuccessResponse(c, http.StatusOK, users, &models.Metadata{
+		TotalCount: len(users),
+		Page:       filterParam.Page,
+		PerPage:    filterParam.PerPage,
+	})
 }
 
 func GetUserById(c *gin.Context) {
@@ -65,10 +105,11 @@ func GetUserById(c *gin.Context) {
 	var user models.User
 	result := initializers.DB.First(&user, user_id)
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Failed to the user by the given primary key"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to get the user by the given primary key", Stack: result.Error})
+		return
 	}
 	// respond with them
-	c.IndentedJSON(200, gin.H{"Users": user})
+	SuccessResponse(c, http.StatusOK, user, &models.Metadata{})
 }
 
 func UpdateUser(c *gin.Context) {
@@ -76,20 +117,31 @@ func UpdateUser(c *gin.Context) {
 	user_id := c.Param("user_id")
 
 	//get the data of the req body
-	c.Bind(&Body)
+	err := c.Bind(&Body)
+
+	if err != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to bind the request body", Stack: err})
+		return
+	}
 
 	//fined the user where updating
 	var user models.User
 	result := initializers.DB.First(&user, user_id)
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Failed to get user"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to get the user", Stack: result.Error})
+		return
 	}
 
 	// update it
-	initializers.DB.Model(&user).Updates(models.User{UserName: Body.UserName, Password: Body.Password, FirstName: Body.FirstName, LastName: Body.LastName})
+	initializers.DB.Model(&user).Updates(models.User{
+		UserName: Body.UserName, 
+		Password: Body.Password, 
+		FirstName: Body.FirstName, 
+		LastName: Body.LastName,
+	})
 
 	// respond it
-	c.JSON(200, gin.H{"User": user})
+	SuccessResponse(c, http.StatusOK, user, &models.Metadata{})
 }
 
 func DeleteUser(c *gin.Context) {
@@ -97,10 +149,14 @@ func DeleteUser(c *gin.Context) {
 	user_id := c.Param("user_id")
 
 	// delete it
-	initializers.DB.Delete(&models.User{}, user_id)
+	err := initializers.DB.Delete(&models.User{}, user_id)
 
+	if err != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to delete the user", Stack: err.Error})
+		return
+	}
 	// respond it
-	c.Status(200)
+	SuccessResponse(c, http.StatusOK, "", &models.Metadata{})
 }
 
 func Login(c *gin.Context) {
@@ -110,7 +166,7 @@ func Login(c *gin.Context) {
 	}
 
 	if c.Bind(&body) != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Failed to read body"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to read the body"})
 		return
 	}
 
@@ -120,7 +176,7 @@ func Login(c *gin.Context) {
 	fmt.Println(user)
 
 	if user.ID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Invalid username"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Invalid user name"})
 		return
 	}
 
@@ -128,7 +184,7 @@ func Login(c *gin.Context) {
 	err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(body.Password))
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Invalid password"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to compare the password", Stack: err})
 		return
 	}
 
@@ -143,16 +199,14 @@ func Login(c *gin.Context) {
 	tokenString, err := token.SignedString([]byte(os.Getenv("SECRET")))
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Error": "Failed to create tocken"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to create tocken", Stack: err})
 		return
 	}
 
 	// send it back
-	c.JSON(http.StatusOK, gin.H{"token": tokenString})
+	SuccessResponse(c, http.StatusOK, tokenString, &models.Metadata{})
 }
 
 func Validate(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "I am logged in"})
+	SuccessResponse(c, http.StatusOK, "I am logged in", &models.Metadata{})
 }
-
-//  Role: models.Role(Body.Role),=========== for line 35

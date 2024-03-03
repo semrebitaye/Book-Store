@@ -3,9 +3,9 @@ package controllers
 import (
 	"book-store/initializers"
 	"book-store/models"
-	"log"
+	"book-store/utilities"
+	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -16,9 +16,11 @@ var bookRequest struct {
 	PublicationDate string  `json:"publication_date"`
 	Price           float64 `json:"price"`
 	Quantity        uint    `json:"quantity"`
-	Cover           string  `json:"cover"`
+	UserID          uint    `json:"user_id"`
 	AuthorID        uint    `json:"author_id"`
 	CategoryID      uint    `json:"category_id"`
+	Role            string  `json:"role"`
+	ImageName       string  `json:"image_name"`
 }
 
 func CreateBook(c *gin.Context) {
@@ -26,57 +28,78 @@ func CreateBook(c *gin.Context) {
 	err := c.Bind(&bookRequest)
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to bind body"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to bind the request body"})
 		return
 	}
 	// create a post
 	u := c.GetUint("user_id")
 
 	if u == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to get user id"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to get the user id"})
 		return
 	}
 
-	book := models.Book{UserID: uint(u), Title: bookRequest.Title, PublicationDate: bookRequest.PublicationDate, Price: bookRequest.Price, Quantity: bookRequest.Quantity, AuthorID: bookRequest.AuthorID, CategoryID: bookRequest.CategoryID}
+	book := models.Book{
+		UserID:          uint(u),
+		Title:           bookRequest.Title,
+		PublicationDate: bookRequest.PublicationDate,
+		Price:           bookRequest.Price,
+		Quantity:        bookRequest.Quantity,
+		AuthorID:        bookRequest.AuthorID,
+		CategoryID:      bookRequest.CategoryID,
+		Role:            models.Role(bookRequest.Role),
+		ImageName:       bookRequest.ImageName,
+	}
 
 	result := initializers.DB.Create(&book)
 
 	if result.Error != nil {
-		c.JSON(400, gin.H{"error": result.Error})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to create the book", Stack: result.Error})
 		return
 	}
 
 	// return it
-	c.JSON(200, gin.H{"User": book})
+	SuccessResponse(c, http.StatusOK, book, &models.Metadata{})
 }
 
 func GetBooks(c *gin.Context) {
-	// get the book
+	var pgParam utilities.PaginationParam
+
+	if err := c.BindQuery(&pgParam); err != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to to bind the query", Stack: err})
+
+		return
+	}
+	fmt.Println("params:", pgParam)
+	filterParam, err := utilities.ExtractPagination(pgParam)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+	// Retrieve books with pagination and sorting
 	var books []models.Book
-	result := initializers.DB.Find(&books)
+	db := initializers.DB
+	if pgParam.Search != "" {
+		db.Where("title LIKE %%?%% OR author LIKE %%?%% OR category LIKE %%?%%", pgParam.Search, pgParam.Search, pgParam.Search)
+	} else {
+		for _, filter := range filterParam.Filters {
+			db = db.Where(fmt.Sprintf("%s %s %v", filter.ColumnName, filter.Operator, filter.Value))
+		}
+	}
+
+	offset := (filterParam.Page - 1) * filterParam.PerPage
+	result := db.Offset(offset).Limit(filterParam.PerPage).Order(filterParam.Sort.ColumnName + " " + filterParam.Sort.Value).Find(&books)
+
 	if result.Error != nil {
-		log.Fatal("Failed to get the books")
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to bind the request body", Stack: result.Error})
 		return
 	}
 
-	// for pagination and sorting books
-	// parse pagination parameteres
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
-
-	// parse sorting criteria
-	sortBy := c.DefaultQuery("sort_by", "title")
-	sortOrder := c.DefaultQuery("sort_order", "asc")
-
-	//construct database querry
-	dbOffset := (page - 1) * pageSize
-	err := initializers.DB.Order(sortBy + " " + sortOrder).Offset(dbOffset).Limit(pageSize).Find(&books)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to get the book"})
-	}
-
-	// respond
-	c.IndentedJSON(200, books)
+	SuccessResponse(c, http.StatusOK, books, &models.Metadata{
+		TotalCount: len(books),
+		Page:       filterParam.Page,
+		PerPage:    filterParam.PerPage,
+	})
 }
 
 func GetBookByID(c *gin.Context) {
@@ -85,11 +108,14 @@ func GetBookByID(c *gin.Context) {
 
 	//get the book
 	var book models.Book
-	initializers.DB.First(&book, book_id)
+	result := initializers.DB.First(&book, book_id)
+
+	if result.Error != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to get the book", Stack: result.Error})
+	}
 
 	// respond
-	c.JSON(200, gin.H{"Book": book})
-
+	SuccessResponse(c, http.StatusOK, book, &models.Metadata{})
 }
 
 func UpdateBook(c *gin.Context) {
@@ -97,20 +123,31 @@ func UpdateBook(c *gin.Context) {
 	book_id := c.Param("book_id")
 
 	//get the data of the req body
-	c.Bind(&bookRequest)
+	err := c.Bind(&bookRequest)
+
+	if err != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to bind the request body", Stack: err})
+		return
+	}
 
 	//fined the user where updating
 	var book models.User
 	result := initializers.DB.First(&book, book_id)
 	if result.Error != nil {
-		log.Fatal("Failed to get the user")
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to get the book", Stack: result.Error})
+		return
 	}
 
 	// update it
-	initializers.DB.Model(&book).Updates(models.Book{Title: bookRequest.Title, PublicationDate: bookRequest.PublicationDate, Price: bookRequest.Price, Quantity: bookRequest.Quantity})
+	initializers.DB.Model(&book).Updates(models.Book{
+		Title:           bookRequest.Title,
+		Role:            models.Role(bookRequest.Role),
+		PublicationDate: bookRequest.PublicationDate,
+		Price:           bookRequest.Price,
+		Quantity:        bookRequest.Quantity})
 
 	// respond it
-	c.JSON(200, gin.H{"Book": book})
+	SuccessResponse(c, http.StatusOK, book, &models.Metadata{})
 }
 
 func DeleteBook(c *gin.Context) {
@@ -118,45 +155,65 @@ func DeleteBook(c *gin.Context) {
 	book_id := c.Param("book_id")
 
 	// delete it
-	initializers.DB.Delete(&models.Book{}, book_id)
+	err := initializers.DB.Delete(&models.Book{}, book_id)
+
+	if err != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to delete the book", Stack: err.Error})
+		return
+	}
 
 	// respond it
-	c.Status(200)
+	SuccessResponse(c, http.StatusOK, "", &models.Metadata{})
 }
 
 func UploadBookCover(c *gin.Context) {
 	file, header, err := c.Request.FormFile("image")
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Eroor": err.Error()})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to parse the image", Stack: err})
 		return
 	}
 	defer file.Close()
 
+	// Define the maximum file size (32 MB)
+	const maxFileSize = 32
+
+	// Validate file size
+	if header.Size > maxFileSize {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "File size exceeds the maximum limit of 32 MB"})
+		return
+	}
+
 	// check if the file format is supported
 	contentType := header.Header.Get("Content-Type")
 	if contentType != "image/jpeg" && contentType != "image/png" && contentType != "image/gif" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported file format"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Unsupported file format"})
 		return
 	}
 
 	// save the file to the server
 	filename := uuid.NewString() + header.Filename
-	destination := "./image/" + filename
+	destination := "./v1/image/" + filename
 
 	if err := c.SaveUploadedFile(header, destination); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"Error": "Failed to save file"})
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to save file", Stack: err})
 		return
 	}
 
 	// save the file path to the database
-	book := models.Book{
-		Title:     c.PostForm("title"),
+	image := models.Image{
+		ImageName: c.PostForm("image_name"),
 		CoverPath: destination,
 	}
-	initializers.DB.Create(&book)
+	result := initializers.DB.Create(&image)
 
-	c.JSON(http.StatusOK, gin.H{"message": "Image Uploaded successfully", "book": book})
+	if result.Error != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to create the image", Stack: result.Error})
+		return
+	}
+
+	// response it
+	SuccessResponse(c, http.StatusOK, image, &models.Metadata{})
 }
 
 func GetBookCoverImage(c *gin.Context) {
@@ -164,40 +221,20 @@ func GetBookCoverImage(c *gin.Context) {
 	book_id := c.Param("book_id")
 
 	// querry database for books based on ids
-	var books []models.Book
-	initializers.DB.Where("id IN (?)", book_id).Find(&books)
+	var images []models.Image
+	err := initializers.DB.Where("id IN (?)", book_id).Find(&images)
+
+	if err != nil {
+		ErrorResponse(c, http.StatusBadRequest, &models.Error{Message: "Failed to get the image", Stack: err.Error})
+		return
+	}
 
 	// create a map to store book id and associated book cover image path
 	coverImages := make(map[uint]string)
-	for _, book := range books {
-		coverImages[book.ID] = book.CoverPath
+	for _, image := range images {
+		coverImages[image.ID] = image.CoverPath
 	}
 
 	// return cover image path
-	c.JSON(http.StatusOK, coverImages)
-}
-
-func SearchBooks(c *gin.Context) {
-	// get query parameters(title, author, category) from the request url
-	title := c.Query("title")
-	author := c.Query("author")
-	category := c.Query("category")
-
-	// query database for books based on the specified criteria
-	var books []models.Book
-	query := initializers.DB.Model(&books)
-
-	if title != "" {
-		query = query.Where("title LIKE ?", title)
-	}
-	if author != "" {
-		query = query.Where("author= ?", author)
-	}
-	if category != "" {
-		query = query.Where("category= ?", category)
-	}
-	query.Find(&books)
-	// return filtered books
-	c.JSON(http.StatusOK, books)
-
+	SuccessResponse(c, http.StatusOK, coverImages, &models.Metadata{})
 }
