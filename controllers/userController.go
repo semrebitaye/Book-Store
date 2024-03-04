@@ -69,7 +69,7 @@ func GetUsers(c *gin.Context) {
 		c.AbortWithError(http.StatusInternalServerError, err)
 		return
 	}
-	// Retrieve books with pagination and sorting
+	// Retrieve users with pagination and sorting
 	var users []models.User
 	db := initializers.DB
 

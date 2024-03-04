@@ -49,13 +49,12 @@ func GetCategories(c *gin.Context) {
 		return
 	}
 
-	fmt.Println("params:", pgParam)
 	filterParam, err := utilities.ExtractPagination(pgParam)
 	if err != nil {
 		ErrorResponse(c, http.StatusInternalServerError, &models.Error{Message: "Failed to extract pagination", Stack: err})
 		return
 	}
-	// Retrieve books with pagination and sorting
+	// Retrieve categories with pagination and sorting
 	var categories []models.Category
 	db := initializers.DB
 	if pgParam.Search != "" {

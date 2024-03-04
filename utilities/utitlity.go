@@ -2,7 +2,6 @@ package utilities
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 )
 
@@ -39,12 +38,10 @@ func ExtractPagination(param PaginationParam) (FilterParam, error) {
 	if err != nil || page <= 0 {
 		page = 1
 	}
-	fmt.Println("page int:", page)
 	per_page, err := strconv.Atoi(param.PerPage)
 	if err != nil || per_page <= 0 {
 		per_page = 10 // Default limit
 	}
-	fmt.Println("perpage int:", per_page)
 	var sort Sort
 	if param.Sort == "" {
 		sort.ColumnName = "created_at"

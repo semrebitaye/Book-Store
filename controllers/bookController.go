@@ -70,7 +70,6 @@ func GetBooks(c *gin.Context) {
 
 		return
 	}
-	fmt.Println("params:", pgParam)
 	filterParam, err := utilities.ExtractPagination(pgParam)
 	if err != nil {
 		c.AbortWithError(http.StatusInternalServerError, err)
